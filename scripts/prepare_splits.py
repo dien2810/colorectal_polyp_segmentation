@@ -14,7 +14,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.data import TEST_SETS, infer_train_source, pair_images_and_masks, write_split
+from src.data import TEST_SETS, infer_train_source, locate_pair_dirs, pair_images_and_masks, write_split
 from src.utils import ROOT
 
 EXPECTED = {"Kvasir": 900, "CVC-ClinicDB": 550}
@@ -31,7 +31,13 @@ def main():
     out = Path(args.out) if Path(args.out).is_absolute() else ROOT / args.out
 
     train_dir = root / "TrainDataset"
-    pairs = pair_images_and_masks(train_dir / "images", train_dir / "masks")
+    if not train_dir.is_dir():
+        present = sorted(p.name for p in root.iterdir()) if root.is_dir() else "folder does not exist"
+        sys.exit(f"{train_dir} not found (contents of {root}: {present}).\n"
+                 f"Run: python scripts/download_data.py --dest {root}")
+    img_dir, mask_dir = locate_pair_dirs(train_dir)
+    print(f"TrainDataset: images in '{img_dir.relative_to(root)}', masks in '{mask_dir.relative_to(root)}'")
+    pairs = pair_images_and_masks(img_dir, mask_dir)
     by_source = {}
     for img, mask in pairs:
         by_source.setdefault(infer_train_source(img.name), []).append(
@@ -56,7 +62,7 @@ def main():
         print(f"{name:<22}{len(items):>8}   {dict(Counter(s for _, _, s in items))}")
     for test_set in TEST_SETS:
         d = root / "TestDataset" / test_set
-        tp = pair_images_and_masks(d / "images", d / "masks")
+        tp = pair_images_and_masks(*locate_pair_dirs(d))
         items = [(i.relative_to(root).as_posix(), m.relative_to(root).as_posix(), test_set) for i, m in tp]
         write_split(out / f"test_{test_set}.txt", items)
         print(f"{'test_' + test_set:<22}{len(items):>8}")

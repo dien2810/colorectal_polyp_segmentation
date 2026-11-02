@@ -25,7 +25,9 @@ train:
   warmup_epochs: 2
   amp: true
   grad_clip: 1.0
-  early_stop_patience: null       # e.g. 20 to stop when validation Dice stops improving
+  early_stop_patience: 20         # stop when validation Dice has not improved for 20 epochs;
+                                  # best.pt is chosen by validation Dice, so this only skips
+                                  # epochs after the best one
 
 loss:
   bce_weight: 1.0

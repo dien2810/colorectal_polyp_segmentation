@@ -1,7 +1,9 @@
 # Dữ liệu
 
 Code dùng bản dữ liệu do PraNet phát hành (https://github.com/DengPingFan/PraNet). Chạy
-`python scripts/download_data.py` để tải và giải nén vào `data/polyp/`:
+`python scripts/download_data.py` để tải và giải nén vào `data/polyp/` (thêm `--dest <thư mục>` để
+chọn nơi khác, `--zip-dir <thư mục>` để dùng hoặc giữ lại file zip). Script in số ảnh của từng
+thư mục để đối chiếu:
 
 ```
 data/polyp/

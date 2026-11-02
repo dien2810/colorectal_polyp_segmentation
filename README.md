@@ -127,7 +127,12 @@ Việt, thêm `--vi` để dùng dấu phẩy thập phân.
 
 Mở `notebooks/colab_pipeline.ipynb`. Notebook gắn Google Drive, cài thư viện, tải dữ liệu
 vào ổ cục bộ của Colab (đọc nhanh hơn Drive), và lưu `outputs/` lên Drive để không mất khi bị
-ngắt phiên. Trên Kaggle, tải thư mục Project lên làm Dataset, bật GPU, rồi chạy
+ngắt phiên. Mỗi lệnh dừng ô ngay khi lỗi, nên lỗi hiện ra là lỗi đầu tiên.
+
+**Khi không tải được dữ liệu** (link Google Drive của PraNet hay bị giới hạn lượt tải): mở hai
+link được in ra, tải `TrainDataset.zip` và `TestDataset.zip` bằng trình duyệt, đặt vào
+`MyDrive/advanced_ml/data_zips/`, rồi chạy lại ô Dữ liệu. Script giải nén từ đó và không tải lại.
+Lần tải thành công đầu tiên cũng tự lưu một bản zip vào thư mục này cho các phiên sau. Trên Kaggle, tải thư mục Project lên làm Dataset, bật GPU, rồi chạy
 `bash scripts/run_all.sh` với `DATA_ROOT` trỏ đến dữ liệu.
 
 ## Demo

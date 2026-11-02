@@ -32,6 +32,39 @@ def infer_train_source(filename: str) -> str:
     return "CVC-ClinicDB" if Path(filename).stem.isdigit() else "Kvasir"
 
 
+MASK_HINTS = ("mask", "gt", "label", "annot")
+
+
+def _image_files(folder: Path) -> list:
+    return [p for p in folder.iterdir() if p.is_file() and p.suffix.lower() in IMG_EXTS] if folder.is_dir() else []
+
+
+def locate_pair_dirs(folder: Path) -> Tuple[Path, Path]:
+    """Find the image and mask folders of a dataset folder. Releases differ in naming
+    ('images'/'image'/'Images', 'masks'/'mask'/'GT', ...), so the mask folder is the one whose name
+    looks like a mask folder, and the image folder is the other folder whose file names match the
+    masks best. The dataset folder itself counts as a candidate (images stored at its top level)."""
+    folder = Path(folder)
+    for img_name, mask_name in (("images", "masks"), ("image", "mask"), ("images", "mask"), ("image", "masks")):
+        if _image_files(folder / img_name) and _image_files(folder / mask_name):
+            return folder / img_name, folder / mask_name
+    candidates = [folder] + [d for d in sorted(folder.rglob("*")) if d.is_dir() and "__MACOSX" not in d.parts]
+    candidates = [d for d in candidates if _image_files(d)]
+    mask_dirs = [d for d in candidates if any(h in d.name.lower() for h in MASK_HINTS)]
+    if not mask_dirs:
+        raise FileNotFoundError(f"No mask folder found in {folder}. Folders with images: "
+                                f"{[str(d.relative_to(folder)) or '.' for d in candidates]}")
+    mask_dir = max(mask_dirs, key=lambda d: len(_image_files(d)))
+    mask_stems = {p.stem for p in _image_files(mask_dir)}
+    image_dirs = [d for d in candidates if d not in mask_dirs]
+    scored = [(len(mask_stems & {p.stem for p in _image_files(d)}), d) for d in image_dirs]
+    scored = [s for s in scored if s[0] > 0]
+    if not scored:
+        raise FileNotFoundError(f"No image folder matching {mask_dir} found in {folder}. Folders with images: "
+                                f"{[str(d.relative_to(folder)) or '.' for d in candidates]}")
+    return max(scored, key=lambda s: s[0])[1], mask_dir
+
+
 def pair_images_and_masks(image_dir: Path, mask_dir: Path) -> List[Tuple[Path, Path]]:
     masks = {p.stem: p for p in mask_dir.iterdir() if p.suffix.lower() in IMG_EXTS}
     pairs = []
@@ -43,8 +76,15 @@ def pair_images_and_masks(image_dir: Path, mask_dir: Path) -> List[Tuple[Path, P
 
 
 def read_split(path) -> List[Sample]:
+    path = Path(path)
+    if not path.exists():
+        raise FileNotFoundError(
+            f"{path} does not exist. Create the split files first:\n"
+            f"    python scripts/download_data.py --dest <data root>\n"
+            f"    python scripts/prepare_splits.py --root <data root>\n"
+            f"If you ran them, scroll up: one of them failed (often the download).")
     samples = []
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         if line.strip():
             img, mask, source = line.split("\t")
             samples.append((img, mask, source))
