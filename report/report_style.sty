@@ -1,0 +1,112 @@
+% report_style.sty
+% Layout that reproduces the course report template (report_en_khung_2509.pdf):
+% A4, two-sided, 372pt text block, Latin Modern fonts, separate title page with a
+% structured abstract, bold "Table n:" / "Fig. n:" captions, red placeholders.
+% Compile with XeLaTeX (Overleaf: Menu > Compiler > XeLaTeX).
+\NeedsTeXFormat{LaTeX2e}
+\ProvidesPackage{report_style}[2026/11/02 Course report layout]
+
+% ---------------------------------------------------------------- fonts, page
+\RequirePackage{fontspec}            % Latin Modern by default, covers Vietnamese
+\RequirePackage{amsmath,amssymb}
+\RequirePackage[a4paper,twoside,
+  textwidth=372pt,textheight=562pt,
+  inner=99pt,top=82pt,footskip=30pt]{geometry}
+\setlength{\parindent}{12pt}
+\setlength{\emergencystretch}{1.5em}
+\pagestyle{plain}
+\raggedbottom
+
+% ---------------------------------------------------------------- packages
+\RequirePackage{etoolbox}
+\RequirePackage[table]{xcolor}
+\RequirePackage{graphicx}
+\RequirePackage{booktabs,array,tabularx,makecell,multirow}
+\RequirePackage{enumitem}
+\RequirePackage{titlesec}
+\RequirePackage[labelfont=bf,labelsep=colon,font=normalsize,skip=6pt]{caption}
+\RequirePackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,fit,backgrounds,calc}
+\RequirePackage{xurl}
+\RequirePackage[colorlinks=true,linkcolor=blue,citecolor=blue,urlcolor=blue,
+  bookmarksnumbered=true]{hyperref}
+
+% ---------------------------------------------------------------- headings
+\titleformat{\section}{\normalfont\Large\bfseries}{\thesection}{0.6em}{}
+\titleformat{\subsection}{\normalfont\large\bfseries}{\thesubsection}{0.6em}{}
+\titleformat{\subsubsection}{\normalfont\normalsize\bfseries}{\thesubsubsection}{0.6em}{}
+\titlespacing*{\section}{0pt}{22pt plus 4pt minus 2pt}{9pt plus 2pt}
+\titlespacing*{\subsection}{0pt}{14pt plus 3pt minus 2pt}{6pt plus 1pt}
+\titlespacing*{\subsubsection}{0pt}{10pt plus 2pt minus 2pt}{4pt}
+
+% ---------------------------------------------------------------- floats
+\captionsetup[table]{position=top}
+\AtBeginEnvironment{table}{\footnotesize}   % tables are set in 8pt, captions stay 10pt
+\setlength{\textfloatsep}{14pt plus 2pt minus 4pt}
+\setlength{\floatsep}{12pt plus 2pt minus 2pt}
+\renewcommand{\arraystretch}{1.05}
+\setlist[itemize]{leftmargin=14pt,itemsep=1pt,topsep=4pt,parsep=0pt}
+\setlist[enumerate]{leftmargin=16pt,itemsep=1pt,topsep=4pt,parsep=0pt}
+
+% ---------------------------------------------------------------- placeholders
+% \ph{...}     red text still to be written or measured
+% \tbd         red dash for an empty result cell
+% \figph{...}  framed box that stands in for a figure
+\newcommand{\ph}[1]{\textcolor{red}{#1}}
+\newcommand{\tbd}{\textcolor{red}{--}}
+\newcommand{\figph}[2][130pt]{%
+  \fbox{\parbox[c][#1][c]{0.9\linewidth}{\centering\small\itshape\color{red}#2}}}
+
+% ---------------------------------------------------------------- title page
+% \makereporttitle{<title>}{<authors>}{<affiliation>}
+\newcommand{\authorand}[1]{\hspace{1.4em}#1\hspace{1.4em}}
+\newcommand{\makereporttitle}[3]{%
+  \thispagestyle{plain}%
+  \null\vspace{58pt}%
+  \begin{center}
+    {\LARGE #1\par}
+    \vspace{16pt}
+    {\large #2\par}
+    \vspace{9pt}
+    {\normalsize #3\par}
+  \end{center}
+  \vspace{56pt}}
+
+% Structured abstract:
+% \begin{reportabstract}[Abstract] \abslabel{Purpose} ... \keywords[Keywords]{...} \end{reportabstract}
+\newenvironment{reportabstract}[1][Abstract]{%
+  \begin{center}\small\bfseries #1\end{center}\vspace{-2pt}%
+  \list{}{\leftmargin=24pt\rightmargin=24pt\listparindent=0pt
+          \itemindent=0pt\parsep=0pt\topsep=0pt\partopsep=0pt}%
+  \item\relax\small}{\endlist\clearpage}
+\newcommand{\abslabel}[1]{\par\noindent\textbf{#1:}\ }
+\newcommand{\keywords}[2][Keywords]{\par\vspace{10pt}{\footnotesize\noindent\textbf{#1:} #2\par}}
+
+% ---------------------------------------------------------------- appendix
+% \startappendix[Appendix]  then  \section{...}  gives "Appendix A  Title",
+% tables numbered A1, B2, ... as in the template.
+\newcommand{\startappendix}[1][Appendix]{%
+  \clearpage
+  \setcounter{section}{0}%
+  \setcounter{table}{0}%
+  \setcounter{figure}{0}%
+  \renewcommand{\thesection}{\Alph{section}}%
+  \renewcommand{\thetable}{\Alph{section}\arabic{table}}%
+  \renewcommand{\thefigure}{\Alph{section}\arabic{figure}}%
+  \renewcommand{\theHsection}{appendix.\Alph{section}}%
+  \renewcommand{\theHtable}{appendix.\Alph{section}.\arabic{table}}%
+  \renewcommand{\theHfigure}{appendix.\Alph{section}.\arabic{figure}}%
+  \titleformat{\section}[hang]{\normalfont\Large\bfseries}{#1 \thesection}{1em}{}}
+
+% ---------------------------------------------------------------- references
+\newcommand{\printreferences}{%
+  \clearpage
+  \begingroup
+  \setlength{\itemsep}{6pt}%
+  \input{references.tex}%
+  \endgroup}
+
+% ---------------------------------------------------------------- run-in paragraph
+\newcommand{\runin}[1]{\par\noindent\textbf{#1}\ }
+
+\endinput

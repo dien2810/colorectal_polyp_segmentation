@@ -1,0 +1,9 @@
+# Improvement C1 (optional): pretrained PVTv2-B2 encoder + MultiResUNet decoder.
+# Combine with the ablation files for C2/C3, e.g.
+#   python scripts/train.py --config configs/proposed_c1.yaml configs/ablation/c2_c3.yaml
+_base_: base.yaml
+experiment: proposed_c1
+model:
+  name: respath_unet
+  pretrained: true
+  params: {encoder_name: pvt_v2_b2.in1k}   # or convnext_tiny.fb_in1k

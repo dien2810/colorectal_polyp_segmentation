@@ -1,0 +1,17 @@
+# PyTorch: dùng bản có sẵn trên Colab/Kaggle, hoặc cài theo hướng dẫn tại https://pytorch.org
+torch>=2.3
+torchvision>=0.18
+# Các phiên bản dưới đây đã được kiểm thử với code (tháng 11/2026)
+timm==1.0.30
+albumentations==2.0.8
+opencv-python-headless>=4.9
+numpy
+scipy
+pandas
+pyyaml
+matplotlib
+tqdm
+gdown
+pytest
+# Chỉ cần cho demo
+gradio

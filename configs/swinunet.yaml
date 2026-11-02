@@ -1,0 +1,10 @@
+_base_: base.yaml
+experiment: swinunet
+data:
+  img_size: 224                   # fixed: window 7 must divide 56, 28, 14, 7
+model:
+  name: swinunet
+  pretrained: true                # Swin-T, ImageNet-1k
+  params: {encoder_name: swin_tiny_patch4_window7_224.ms_in1k, img_size: 224}
+train:
+  batch_size: 16

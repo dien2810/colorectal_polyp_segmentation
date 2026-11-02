@@ -1,0 +1,543 @@
+% !TEX program = xelatex
+% Polyp segmentation report (English). Compile: latexmk -xelatex Polyp-Segmentation_Report-EN_v1.tex
+% Red text (\ph, \tbd, \figph) marks content still to be written or measured.
+\documentclass[10pt,twoside]{article}
+\usepackage{report_style}
+\usepackage{polyglossia}
+\setdefaultlanguage{english}
+\gappto\captionsenglish{\renewcommand{\figurename}{Fig.}}
+
+\begin{document}
+
+\makereporttitle
+  {Colorectal Polyp Segmentation: Comparing CNN and Transformer Models and Improving Out-of-Domain Generalization}
+  {Nguyen An Tran Dien\authorand{and}\ph{[Team member]}}
+  {University of Information Technology,\\ Ho Chi Minh City, Vietnam.}
+
+\begin{reportabstract}[Abstract]
+\abslabel{Purpose} Polyp segmentation models reach a Dice score close to 0.90 on
+images from the centers they were trained on, but lose much of it on images from
+other centers: PraNet scores 0.898 on Kvasir-SEG and 0.628 on ETIS. Most published
+comparisons also rely on Dice alone. This study compares CNN and Transformer
+segmentation models under one training pipeline and tests whether low-cost changes
+narrow the out-of-domain gap.
+\abslabel{Methods} All models are trained on the PraNet split of Kvasir-SEG and
+CVC-ClinicDB (1,450 images) and tested on five sets, three of which come from
+centers unseen during training. We reproduce U-Net, MultiResUNet, CE-Net, and
+TransUNet \ph{[and Swin-Unet]} with the same data, augmentation, loss, and schedule,
+then add a boundary-aware loss and colour-based domain augmentation. Models are
+compared with Dice, IoU, recall, and HD95, and differences are tested with the
+Wilcoxon signed-rank test on per-image scores.
+\abslabel{Results} \ph{[Placeholder] Dice of each model on the in-domain and
+out-of-domain sets; size of the generalization gap; whether Transformers beat CNNs
+significantly; effect of each improvement in the ablation; inference speed.}
+\abslabel{Conclusion} \ph{[Placeholder] One or two sentences on the main finding,
+followed by the main limitation (small training set, public benchmarks only, few
+runs per configuration).}
+\keywords[Keywords]{polyp segmentation, colonoscopy, U-Net, Vision Transformer,
+domain generalization, boundary loss, statistical testing}
+\end{reportabstract}
+
+% =====================================================================
+\section{Introduction}
+Most colorectal cancers develop from polyps in the colon, and finding and removing
+polyps during colonoscopy lowers the risk of cancer \ph{[citation]}. Polyps vary in
+size, shape, and colour, and many look similar to the surrounding mucosa, so some
+are missed. Automatic segmentation outlines the polyp pixel by pixel and can support
+the endoscopist during the procedure. Encoder--decoder networks derived from
+U-Net~\cite{ronneberger2015unet} are the standard approach, and recent models extend
+or replace the convolutional encoder with
+Transformers~\cite{chen2021transunet,cao2022swinunet}.
+
+Scores on the usual benchmarks are high, but they drop sharply on data from other
+centers. PraNet reaches a mean Dice of 0.898 on Kvasir-SEG and 0.899 on
+CVC-ClinicDB, the two sources of its training data, but 0.709 on CVC-ColonDB and
+0.628 on ETIS~\cite{fan2020pranet}. Evaluation practice adds a second problem. An
+audit of 27 polyp segmentation papers found that 26 report no significance test,
+25 omit HD95, and 25 omit recall; on the six unseen centers of PolypGen, all
+re-evaluated models fell to a Dice of 0.71--0.76~\cite{urooj2026audit}. Small Dice
+differences measured on in-domain sets therefore say little about which model works
+better on new data.
+
+This report does not attempt to set a new state of the art. It studies a narrower
+question: under one controlled pipeline, how do the CNN and Transformer models of
+the course reading list~\cite{ronneberger2015unet,chen2021transunet,cao2022swinunet,ibtehaz2020multiresunet,gu2019cenet,isensee2018nnunet}
+compare on in-domain and out-of-domain data, and can low-cost changes reduce the gap
+between the two?
+
+The report addresses three research questions:
+\begin{itemize}
+  \item \textbf{RQ1.} With about 1,450 training images, do Transformer-based models
+  (TransUNet, Swin-Unet) outperform CNN-based models (MultiResUNet, CE-Net) by a
+  statistically significant margin?
+  \item \textbf{RQ2.} Which model keeps its performance best on the out-of-domain
+  sets CVC-ColonDB, ETIS, and CVC-300?
+  \item \textbf{RQ3.} How much do a boundary-aware loss and colour-based domain
+  augmentation reduce the generalization gap, and which component contributes most?
+\end{itemize}
+
+The report is organized as follows. Section~\ref{sec:related} reviews encoder--decoder
+CNNs, Transformer-based segmentation, and polyp benchmarks. Section~\ref{sec:problem}
+defines the task and the data. Section~\ref{sec:pipeline} describes the experimental
+pipeline and the models, followed by the loss functions and the proposed improvements
+in Section~\ref{sec:methods}. Sections~\ref{sec:setup} and~\ref{sec:results} present
+the experimental setup and results. Section~\ref{sec:limits} states the reliability
+constraints, and Section~\ref{sec:conclusion} concludes the study.
+
+% =====================================================================
+\section{Related Works}\label{sec:related}
+\subsection{Encoder--decoder CNNs for medical image segmentation}
+U-Net combines a contracting encoder with an expanding decoder and passes
+high-resolution features through skip connections, which lets it learn from few
+annotated images~\cite{ronneberger2015unet}. MultiResUNet replaces the two
+convolutions of each stage with a MultiRes block, a chain of $3\times3$ convolutions
+whose outputs are concatenated to cover several receptive fields, and adds residual
+``Res paths'' to the skip connections to reduce the semantic gap between encoder and
+decoder features; it was evaluated on five biomedical datasets, including
+CVC-ClinicDB and ISIC~2018~\cite{ibtehaz2020multiresunet}. CE-Net places a dense
+atrous convolution (DAC) block and a residual multi-kernel pooling (RMP) block
+between a pretrained ResNet encoder and the decoder, so that multi-scale context is
+captured without further downsampling~\cite{gu2019cenet}. nnU-Net proposes no new
+architecture: it configures preprocessing, network topology, training, and
+post-processing from a ``fingerprint'' of the dataset and was evaluated on the ten
+tasks of the Medical Segmentation Decathlon~\cite{isensee2018nnunet}.
+
+\subsection{Transformers for medical image segmentation}
+Convolutions capture local patterns, and their limited receptive field makes
+long-range context hard to model. TransUNet passes CNN feature maps to a Vision
+Transformer encoder and decodes them with a cascaded upsampler and U-Net skip
+connections~\cite{chen2021transunet}. Swin-Unet builds the whole U-shaped network
+from Swin Transformer blocks, whose shifted windows reduce the cost of
+self-attention, and upsamples with patch-expanding layers~\cite{cao2022swinunet}.
+Both models were evaluated on the Synapse multi-organ CT and ACDC cardiac MRI
+datasets rather than on colonoscopy images.
+
+\subsection{Polyp segmentation benchmarks and evaluation practice}
+PraNet introduced the protocol that most polyp papers follow: training on 900
+Kvasir-SEG and 550 CVC-ClinicDB images and testing on five
+sets~\cite{fan2020pranet}. PolypGen adds images from six centers to test
+generalization~\cite{ali2023polypgen}. The audit in~\cite{urooj2026audit} found at
+least five incompatible split protocols in use, transcription errors in survey
+tables, and differences of up to about 16~px in HD95 between metric libraries. It
+proposes a reporting checklist: HD95 and recall as primary metrics, an explicit split
+protocol, an external test set, and significance tests over per-image scores. Metrics
+Reloaded gives general guidance on choosing segmentation
+metrics~\cite{maierhein2024metrics}. This report follows these recommendations.
+
+% =====================================================================
+\section{Problem Formulation and Data}\label{sec:problem}
+\subsection{Task formulation}
+An image $x\in\mathbb{R}^{H\times W\times 3}$ has a binary mask
+$y\in\{0,1\}^{H\times W}$ that marks the polyp pixels. A model $f_\theta$ outputs a
+probability map, and the predicted mask is obtained by thresholding:
+\begin{equation}
+  p = f_\theta(x)\in[0,1]^{H\times W},\qquad \hat{y} = \mathbb{1}[\,p \ge 0.5\,].
+\end{equation}
+Training images come from a source domain $\mathcal{D}_S$ (Kvasir-SEG and
+CVC-ClinicDB). Test images come from $\mathcal{D}_S$ and from $K$ target domains
+$\mathcal{D}_T^1,\dots,\mathcal{D}_T^K$ that are never seen during training
+(CVC-ColonDB, ETIS, and CVC-300). For a per-image score $s$ (Dice in the main
+analysis), the generalization gap of a model is
+\begin{equation}\label{eq:gap}
+  \Delta = \bar{s}\bigl(\mathcal{D}_S^{\text{test}}\bigr)
+  - \frac{1}{K}\sum_{k=1}^{K}\bar{s}\bigl(\mathcal{D}_T^{k}\bigr),
+\end{equation}
+where $\bar{s}$ is the mean score over the images of a set. A model generalizes
+better when it scores high on the target domains and has a small $\Delta$.
+
+\subsection{Data sources}
+Table~\ref{tab:data} lists the five public datasets. Kvasir-SEG and CVC-ClinicDB
+provide the training images; CVC-ColonDB, ETIS, and CVC-300 are used only for
+testing. All five are used in the form released with PraNet~\cite{fan2020pranet}.
+
+\begin{table}[t]
+\centering
+\caption{Datasets and their roles.}\label{tab:data}
+\begin{tabular}{@{}llll@{}}
+\toprule
+Dataset & Images & Resolution & Role \\
+\midrule
+Kvasir-SEG~\cite{jha2020kvasir} & 1,000 & varied & Training; in-domain test \\
+CVC-ClinicDB~\cite{bernal2015clinicdb} & 612 & $384\times288$ & Training; in-domain test \\
+CVC-ColonDB~\cite{bernal2012colondb} & 380 & $574\times500$ & Out-of-domain test \\
+ETIS-LaribPolypDB~\cite{silva2014etis} & 196 & $1225\times966$ & Out-of-domain test \\
+CVC-300 (EndoScene)~\cite{vazquez2017endoscene} & 60 & \ph{[verify]} & Out-of-domain test \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Data split}
+Table~\ref{tab:split} gives the number of images per split. Training and test images
+follow the fixed PraNet split~\cite{fan2020pranet}. Ten percent of the training
+images of each source dataset are held out at random (seed 42) for validation, so
+that checkpoints are selected without touching any test set. Because the three CVC
+datasets were collected by related groups, near-duplicate images across the training
+and test sets are checked with perceptual hashing before training, as
+in~\cite{urooj2026audit}. Figure~\ref{fig:samples} shows sample images.
+
+\begin{table}[t]
+\centering
+\caption{Number of images per split.}\label{tab:split}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Split & Kvasir & ClinicDB & ColonDB & ETIS & CVC-300 & Total \\
+\midrule
+Training   & 810 & 495 & -- & -- & -- & 1,305 \\
+Validation &  90 &  55 & -- & -- & -- &   145 \\
+Test       & 100 &  62 & 380 & 196 & 60 & 798 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figph{[Figure placeholder] One image and its mask from each of the five datasets,
+showing differences in colour, lighting, and resolution. Generated by
+scripts/plot\_dataset\_examples.py.}
+\caption{Sample images and ground-truth masks from each dataset.}\label{fig:samples}
+\end{figure}
+
+% =====================================================================
+\section{Experimental Pipeline}\label{sec:pipeline}
+Figure~\ref{fig:pipeline} shows the pipeline, and Table~\ref{tab:models} lists the
+models. Every model goes through the same stages with the same data, augmentation,
+loss, and schedule; only the architecture changes, so differences in the results can
+be attributed to the architecture rather than to the training recipe. The shaded
+stages are where the improvements of Section~\ref{sec:methods} are applied.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  every node/.append style={execute at begin node={\hyphenpenalty=10000}},
+  box/.style={draw, rounded corners=2pt, align=center, font=\scriptsize,
+    text width=72pt, minimum height=40pt, inner sep=2pt},
+  hl/.style={box, fill=black!8},
+  arr/.style={-{Stealth[length=3.5pt]}, semithick}]
+  \node[box] (a) at (40pt,0)    {\textbf{1 Data}\\ PraNet split\\ 5 datasets};
+  \node[box] (b) at (136pt,0)   {\textbf{2 Preprocessing}\\ resize, ImageNet\\ normalization};
+  \node[hl]  (c) at (232pt,0)   {\textbf{3 Augmentation}\\ flips, rotation,\\ scale, colour (C3)};
+  \node[box] (d) at (328pt,0)   {\textbf{4 Model}\\ U-Net, CE-Net,\\ MultiResUNet,\\ TransUNet, Swin-Unet};
+  \node[hl]  (e) at (328pt,-56pt) {\textbf{5 Training}\\ BCE + Dice,\\ boundary loss (C2)};
+  \node[hl]  (f) at (232pt,-56pt) {\textbf{6 Inference}\\ threshold 0.5,\\ test-time aug. (C3)};
+  \node[box] (g) at (136pt,-56pt) {\textbf{7 Evaluation}\\ Dice, IoU,\\ recall, HD95};
+  \node[box] (h) at (40pt,-56pt)  {\textbf{8 Statistics, demo}\\ Wilcoxon and\\ Friedman tests;\\ Gradio demo};
+  \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d);
+  \draw[arr] (d) -- (e); \draw[arr] (e) -- (f); \draw[arr] (f) -- (g); \draw[arr] (g) -- (h);
+  \node[draw, dashed, rounded corners=2pt, font=\scriptsize, text width=356pt,
+    align=center, inner sep=4pt] at (184pt,-102pt)
+    {Same data, schedule, and seed for every model \,$\bullet$\, checkpoint chosen on
+     validation \,$\bullet$\, per-image scores logged for every test set};
+\end{tikzpicture}
+\caption{Experimental pipeline. Shaded stages are modified by the proposed
+improvements (C2: boundary-aware loss; C3: domain augmentation and test-time
+augmentation).}\label{fig:pipeline}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Models compared in this study (``\#'' refers to the course reading list).}\label{tab:models}
+\begin{tabularx}{\linewidth}{@{}l c >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X l@{}}
+\toprule
+Model & \# & Key idea & Problem addressed & Priority \\
+\midrule
+U-Net~\cite{ronneberger2015unet} & -- & Encoder--decoder with skip connections & Reference baseline & Required \\
+MultiResUNet~\cite{ibtehaz2020multiresunet} & 59 & MultiRes blocks; Res paths & Polyps of varying size; encoder--decoder semantic gap & Required \\
+CE-Net~\cite{gu2019cenet} & 60 & DAC and RMP blocks at the bottleneck & Spatial detail lost by repeated pooling & Required \\
+TransUNet~\cite{chen2021transunet} & 57 & CNN features, ViT encoder, U-Net decoder & Limited receptive field of CNNs & Required$^{*}$ \\
+Swin-Unet~\cite{cao2022swinunet} & 56 & U-shaped network of Swin Transformer blocks & Global context at lower cost than ViT & Optional$^{*}$ \\
+nnU-Net~\cite{isensee2018nnunet} & 58 & Self-configuring U-Net pipeline & Strong baseline without manual tuning & Optional \\
+\bottomrule
+\multicolumn{5}{@{}l}{$^{*}$At least one of the two Transformer models is required.}
+\end{tabularx}
+\end{table}
+
+TransUNet and Swin-Unet expect $224\times224$ inputs by default, while the CNNs follow
+PraNet and use $352\times352$. The input size of each model is reported in
+Appendix~\ref{app:settings}, and predictions are resized to the original resolution
+before evaluation, so all models are scored on the same masks. Each run writes its
+configuration, seed, and per-image scores to a shared log. The best model is served
+through a Gradio~\cite{abid2019gradio} demo that overlays the predicted mask on an
+uploaded image.
+
+% =====================================================================
+\section{Loss Functions and Proposed Improvements}\label{sec:methods}
+\subsection{Segmentation loss}
+All models are trained with the sum of binary cross-entropy and a soft Dice loss:
+\begin{equation}\label{eq:loss}
+  \mathcal{L}_{\text{seg}} = \mathcal{L}_{\text{BCE}}(p,y)
+  + 1 - \frac{2\sum_i p_i y_i + \epsilon}{\sum_i p_i + \sum_i y_i + \epsilon},
+\end{equation}
+where $i$ runs over pixels and $\epsilon$ avoids division by zero. Cross-entropy gives
+a gradient for every pixel, and the Dice term counteracts the imbalance between the
+small polyp region and the large background.
+
+\subsection{Boundary-aware loss (C2)}
+Dice and cross-entropy count pixels, so a prediction that covers the polyp but places
+its edge a few pixels off is barely penalized, whereas HD95 is sensitive to such
+errors. Following Kervadec et al.~\cite{kervadec2021boundary}, we add a term weighted
+by the signed distance map $\phi_G$ of the ground-truth boundary, negative inside the
+polyp and positive outside:
+\begin{equation}\label{eq:boundary}
+  \mathcal{L}_{B} = \frac{1}{|\Omega|}\sum_{q\in\Omega}\phi_G(q)\,p(q),
+  \qquad
+  \mathcal{L} = \mathcal{L}_{\text{seg}} + \lambda\,\mathcal{L}_{B}.
+\end{equation}
+Probability placed far outside the true region costs more than probability near its
+edge. As recommended in~\cite{kervadec2021boundary}, $\lambda$ starts small and is
+increased during training, up to \ph{[value]}. An auxiliary head that predicts the
+boundary map is a fallback if this term makes training unstable.
+
+\subsection{Domain augmentation and test-time augmentation (C3)}
+We assume that a large part of the difference between centers comes from the colour,
+illumination, and resolution of the endoscopes. The baseline augmentation (flips,
+rotation, scaling, mild brightness changes) is therefore extended with stronger
+photometric changes: brightness and contrast, hue and saturation shifts, gamma, blur,
+and JPEG compression, implemented with Albumentations~\cite{buslaev2020albumentations}.
+At inference time, predictions are averaged over horizontal and vertical flips. The
+effect is measured by the change in the gap $\Delta$ of Eq.~\eqref{eq:gap}.
+
+\subsection{Stronger pretrained encoder (C1, optional)}
+If the baseline comparison is complete by week 4 of the project, the encoder of the
+best model is replaced by a PVTv2~\cite{wang2022pvtv2} or ConvNeXt~\cite{liu2022convnext}
+backbone pretrained on ImageNet, while the decoder keeps the Res paths of
+MultiResUNet. The aim is to combine global context with multi-scale detail.
+
+% =====================================================================
+\section{Experimental Setup}\label{sec:setup}
+\begin{table}[t]
+\centering
+\caption{Main experimental configuration.}\label{tab:config}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Component & Configuration \\
+\midrule
+Training data & 1,305 images (PraNet training split minus 10\% for validation) \\
+Input size & $352\times352$ for CNNs; $224\times224$ for TransUNet and Swin-Unet \ph{[confirm]} \\
+Normalization & ImageNet mean and standard deviation \\
+Augmentation & Flips, rotation, random scaling, mild colour changes; stronger photometric set for C3 \\
+Optimizer & AdamW~\cite{loshchilov2019adamw}, learning rate $10^{-4}$, weight decay \ph{[value]} \\
+Batch size, epochs & \ph{8--16}, 100 epochs, mixed precision \\
+Loss & BCE + Dice (Eq.~\ref{eq:loss}); boundary term for C2 (Eq.~\ref{eq:boundary}) \\
+Checkpoint selection & Highest validation Dice; test sets never used for selection \\
+Framework, hardware & PyTorch~\cite{paszke2019pytorch} \ph{[version]}; Google Colab or Kaggle GPU \ph{[model]} \\
+Seeds & 42 \ph{[and two more if GPU time allows]} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Table~\ref{tab:config} summarizes the configuration. For a predicted mask $\hat{y}$ and
+a ground-truth mask $y$, the overlap and sensitivity metrics are
+\begin{equation}
+  \text{Dice} = \frac{2|\hat{y}\cap y|}{|\hat{y}|+|y|},\qquad
+  \text{IoU} = \frac{|\hat{y}\cap y|}{|\hat{y}\cup y|},\qquad
+  \text{Recall} = \frac{|\hat{y}\cap y|}{|y|}.
+\end{equation}
+Recall is reported because a missed polyp is more harmful than a false alarm. Boundary
+accuracy is measured with the 95th percentile of the symmetric Hausdorff distance,
+\begin{equation}
+  \text{HD95}(\hat{y},y) = \max\Bigl\{ P_{95}\bigl\{d(a,\partial y) : a\in\partial\hat{y}\bigr\},\;
+  P_{95}\bigl\{d(b,\partial\hat{y}) : b\in\partial y\bigr\}\Bigr\},
+\end{equation}
+where $\partial$ denotes the boundary of a mask and $d$ the Euclidean distance in pixels
+at the original resolution. Since HD95 values differ between
+libraries~\cite{urooj2026audit}, a single library (\ph{[name, version]}) is used for
+all models, and an empty prediction receives the image diagonal as its HD95. All
+metrics are computed per image and averaged per test set (mDice, mIoU).
+
+Two models are compared with the Wilcoxon signed-rank test~\cite{wilcoxon1945} on
+paired per-image Dice scores; a difference is called significant only when $p<0.05$.
+To compare all models at once, the Friedman test~\cite{friedman1937} is followed by a
+post-hoc test, as recommended by Dem\v{s}ar~\cite{demsar2006}. Means on the
+out-of-domain sets are reported with 95\% bootstrap confidence intervals. Efficiency is
+reported as the number of parameters, FLOPs, and frames per second at batch size 1.
+
+% =====================================================================
+\section{Results and Discussion}\label{sec:results}
+\subsection{CNN versus Transformer models (RQ1)}
+\ph{[Placeholder] Compare mDice of all models on the five test sets (Table~\ref{tab:main}).
+State whether the best Transformer is significantly better than the best CNN, and
+discuss the role of ImageNet pretraining.}
+
+\begin{table}[t]
+\centering
+\caption{mDice on the five test sets. PraNet values are those reported
+in~\cite{fan2020pranet} and are given for reference only.}\label{tab:main}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & \multicolumn{2}{c}{In-domain} & \multicolumn{3}{c}{Out-of-domain} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}
+Model & Kvasir & ClinicDB & ColonDB & ETIS & CVC-300 & $p$ vs.\ CNN \\
+\midrule
+PraNet~\cite{fan2020pranet} & 0.898 & 0.899 & 0.709 & 0.628 & 0.871 & -- \\
+\midrule
+U-Net        & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+MultiResUNet & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+CE-Net       & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+TransUNet    & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+Swin-Unet    & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Out-of-domain generalization (RQ2)}
+\ph{[Placeholder] Report the gap $\Delta$, recall, and HD95 on the out-of-domain sets
+(Table~\ref{tab:ood}). Identify which model degrades least and whether the ranking
+changes between Dice and HD95 (Figure~\ref{fig:gap}).}
+
+\begin{table}[t]
+\centering
+\caption{Generalization of each model. In-domain: Kvasir and ClinicDB; out-of-domain:
+ColonDB, ETIS, and CVC-300 (mean over the three sets, 95\% CI in brackets).}\label{tab:ood}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Model & mDice in & mDice out & $\Delta$ & Recall out & HD95 out (px) \\
+\midrule
+U-Net        & \tbd & \tbd & \tbd & \tbd & \tbd \\
+MultiResUNet & \tbd & \tbd & \tbd & \tbd & \tbd \\
+CE-Net       & \tbd & \tbd & \tbd & \tbd & \tbd \\
+TransUNet    & \tbd & \tbd & \tbd & \tbd & \tbd \\
+Swin-Unet    & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figph{[Figure placeholder] Left: mDice in-domain vs.\ out-of-domain for each model
+(paired dots). Right: distribution of per-image Dice on ETIS.}
+\caption{Generalization gap of each model.}\label{fig:gap}
+\end{figure}
+
+\subsection{Ablation of the proposed improvements (RQ3)}
+\ph{[Placeholder] Starting from the best baseline after week 4, add each component and
+report its effect (Table~\ref{tab:ablation}). Report an improvement that is not
+significant as a negative result.}
+
+\begin{table}[t]
+\centering
+\caption{Ablation on the best baseline model. $p$-values compare each row with the
+baseline on per-image out-of-domain Dice.}\label{tab:ablation}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Configuration & mDice in & mDice out & $\Delta$ & HD95 out (px) & $p$ \\
+\midrule
+Best baseline \ph{[name]}         & \tbd & \tbd & \tbd & \tbd & -- \\
++ C3 (domain aug.\ + TTA)         & \tbd & \tbd & \tbd & \tbd & \tbd \\
++ C2 (boundary loss)              & \tbd & \tbd & \tbd & \tbd & \tbd \\
++ C2 + C3                         & \tbd & \tbd & \tbd & \tbd & \tbd \\
+C1 + C2 + C3 (optional)           & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Error analysis and efficiency}
+\ph{[Placeholder] Show the lowest-Dice images of each test set (Figure~\ref{fig:errors}),
+group results by polyp size, and compare model cost (Table~\ref{tab:cost}).}
+
+\begin{table}[t]
+\centering
+\caption{Model size and inference speed (batch size 1, \ph{[GPU]}).}\label{tab:cost}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Model & Parameters (M) & FLOPs (G) & Frames per second \\
+\midrule
+U-Net        & \tbd & \tbd & \tbd \\
+MultiResUNet & \tbd & \tbd & \tbd \\
+CE-Net       & \tbd & \tbd & \tbd \\
+TransUNet    & \tbd & \tbd & \tbd \\
+Swin-Unet    & \tbd & \tbd & \tbd \\
+Proposed     & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figph{[Figure placeholder] Image, ground truth, and predictions of each model for the
+three lowest-Dice images of ETIS and CVC-ColonDB.}
+\caption{Typical failure cases on out-of-domain images.}\label{fig:errors}
+\end{figure}
+
+% =====================================================================
+\section{Reliability and Limitations}\label{sec:limits}
+The evidence is constrained in several ways. The models are trained on 1,305 images
+from two sources, and the out-of-domain sets are small (60--380 images), so their means
+carry wide confidence intervals; differences smaller than these intervals are not
+interpreted. All test images contain at least one polyp, so false alarms on normal
+frames are not measured, and still images selected by dataset creators are cleaner than
+live video, which contains blur, specular highlights, and motion.
+
+Free GPU time limits the number of runs, so some configurations are trained with a single
+seed. Hyperparameters are shared rather than tuned per model, which may favour models
+whose original recipe resembles the shared one. The reproduced models are trained on
+different data and input sizes than in their original papers, so the scores are compared
+only within this pipeline and with PraNet, not with the numbers reported in the original
+papers. The study is an academic comparison on public data; it involves no clinical
+validation, and the demo is not a medical device.
+
+% =====================================================================
+\section{Conclusion and Future Work}\label{sec:conclusion}
+\ph{[Placeholder] Summarize the answers to RQ1--RQ3 in one paragraph, with the main
+numbers.}
+
+Future work should test the models on PolypGen~\cite{ali2023polypgen}, whose six centers
+give a stronger external evaluation than the public benchmark sets. Evaluating on
+colonoscopy videos would measure stability across frames and false alarms on frames
+without polyps. Lighter models suited to real-time inference, and semi-supervised
+training with unlabelled colonoscopy frames, are further extensions.
+
+\runin{Data and Code Availability.} The project code, configurations, data split lists,
+per-image scores, and plotting scripts are maintained in the project repository
+\ph{[URL]}. The datasets are public and remain subject to their original terms; they are
+not redistributed.
+
+% =====================================================================
+\startappendix[Appendix]
+\section{Model-Specific Settings}\label{app:settings}
+\begin{table}[h]
+\centering
+\caption{Settings that differ between models (IN: ImageNet). All other
+settings follow Table~\ref{tab:config}.}\label{tab:settings}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Model & Input size & Pretrained weights & Batch & Epochs & Params (M) \\
+\midrule
+U-Net        & $352\times352$ & none & \tbd & \tbd & \tbd \\
+MultiResUNet & $352\times352$ & none & \tbd & \tbd & \tbd \\
+CE-Net       & $352\times352$ & ResNet-34 (IN-1k) & \tbd & \tbd & \tbd \\
+TransUNet    & $224\times224$ & R50-ViT-B/16 (IN-21k) & \tbd & \tbd & \tbd \\
+Swin-Unet    & $224\times224$ & Swin-T (IN-1k) & \tbd & \tbd & \tbd \\
+Proposed     & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\section{Reproducibility Artifact Map}\label{app:artifacts}
+\begin{table}[h]
+\centering
+\caption{Primary artifacts in the project repository (planned layout; update to the
+final paths).}\label{tab:artifacts}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Purpose & Artifact \\
+\midrule
+Run instructions        & README.md \\
+Data split lists        & data/splits/\{train,val,test\}\_*.txt \\
+Duplicate check         & scripts/check\_duplicates.py \\
+Experiment configurations & configs/*.yaml \\
+Model implementations   & src/models/ \\
+Losses (BCE + Dice, boundary) & src/losses.py \\
+Training and evaluation & scripts/train.py, scripts/evaluate.py \\
+Per-image scores        & outputs/metrics/per\_image\_*.csv \\
+Statistical tests       & scripts/stats\_tests.py \\
+Report figures          & scripts/plot\_report\_figures.py $\rightarrow$ report/figures/ \\
+Demo                    & app/gradio\_app.py \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\printreferences
+
+\end{document}

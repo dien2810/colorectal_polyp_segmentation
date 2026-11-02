@@ -1,0 +1,40 @@
+# Shared defaults (report Table 4). Model configs inherit from this file with `_base_: base.yaml`.
+seed: 42
+output_dir: outputs/runs          # Colab: point this to Google Drive so runs survive disconnects
+
+data:
+  root: data/polyp                # contains TrainDataset/ and TestDataset/ (PraNet release)
+  splits_dir: data/splits
+  img_size: 352
+  normalize: imagenet             # imagenet | half
+  num_workers: 2
+
+augment:
+  mode: baseline                  # baseline | strong (C3)
+
+model:
+  name: unet
+  pretrained: true
+  params: {}
+
+train:
+  epochs: 100
+  batch_size: 16
+  lr: 1.0e-4
+  weight_decay: 1.0e-4
+  warmup_epochs: 2
+  amp: true
+  grad_clip: 1.0
+  early_stop_patience: null       # e.g. 20 to stop when validation Dice stops improving
+
+loss:
+  bce_weight: 1.0
+  dice_weight: 1.0
+  boundary:                       # improvement C2
+    enabled: false
+    lambda_max: 0.5
+    ramp_epochs: 50
+
+eval:
+  tta: false                      # improvement C3 at inference
+  threshold: 0.5

@@ -1,0 +1,19 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+# data and results stay out of git (large, and the datasets are not ours to redistribute)
+data/polyp/
+data/dummy/
+data/*.zip
+data/splits_dummy/
+outputs/
+outputs_dummy/
+# LaTeX build files
+report/*.aux
+report/*.log
+report/*.out
+report/*.fls
+report/*.fdb_latexmk
+report/*.xdv
+report/*.synctex.gz

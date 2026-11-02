@@ -1,0 +1,12 @@
+_base_: base.yaml
+experiment: transunet
+data:
+  img_size: 224                   # ViT grid 14 x 14, as in the paper
+  normalize: half                 # the R50+ViT-B/16 checkpoint expects mean = std = 0.5
+model:
+  name: transunet
+  pretrained: true                # R50+ViT-B/16, ImageNet-21k
+  params: {vit_name: vit_base_r50_s16_224.orig_in21k, img_size: 224}
+train:
+  batch_size: 16
+  lr: 1.0e-4

@@ -1,0 +1,5 @@
+# Ablation C3: stronger photometric augmentation + flip TTA at inference.
+augment:
+  mode: strong
+eval:
+  tta: true

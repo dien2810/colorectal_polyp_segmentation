@@ -1,0 +1,4 @@
+# Ablation C2: add the boundary loss. Use after a model config:
+#   python scripts/train.py --config configs/cenet.yaml configs/ablation/c2_boundary.yaml
+loss:
+  boundary: {enabled: true, lambda_max: 0.5, ramp_epochs: 50}

@@ -1,0 +1,7 @@
+# Ablation C2 + C3 together.
+augment:
+  mode: strong
+loss:
+  boundary: {enabled: true, lambda_max: 0.5, ramp_epochs: 50}
+eval:
+  tta: true

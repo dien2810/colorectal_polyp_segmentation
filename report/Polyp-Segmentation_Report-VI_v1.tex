@@ -1,0 +1,554 @@
+% !TEX program = xelatex
+% Báo cáo phân vùng polyp (tiếng Việt). Biên dịch: latexmk -xelatex Polyp-Segmentation_Report-VI_v1.tex
+% Chữ đỏ (\ph, \tbd, \figph) đánh dấu nội dung còn phải viết hoặc đo.
+\documentclass[10pt,twoside]{article}
+\usepackage{report_style}
+\usepackage{polyglossia}
+\setdefaultlanguage{vietnamese}
+\setotherlanguage{english}
+\gappto\captionsvietnamese{%
+  \renewcommand{\figurename}{Hình}%
+  \renewcommand{\tablename}{Bảng}%
+  \renewcommand{\refname}{Tài liệu tham khảo}}
+
+\begin{document}
+
+\makereporttitle
+  {Phân vùng polyp đại tràng trên ảnh nội soi: so sánh mô hình CNN và Transformer, cải thiện khả năng tổng quát hóa trên dữ liệu ngoài miền}
+  {Nguyễn An Trần Điền\authorand{và}\ph{[Thành viên nhóm]}}
+  {Trường Đại học Công nghệ Thông tin,\\ Thành phố Hồ Chí Minh, Việt Nam.}
+
+\begin{reportabstract}[Tóm tắt]
+\abslabel{Mục đích} Các mô hình phân vùng polyp đạt Dice gần 0,90 trên ảnh của
+những trung tâm có trong dữ liệu huấn luyện, nhưng giảm mạnh trên ảnh từ trung tâm
+khác: PraNet đạt 0,898 trên Kvasir-SEG nhưng chỉ 0,628 trên ETIS. Phần lớn các so
+sánh đã công bố cũng chỉ dựa vào Dice. Nghiên cứu này so sánh các mô hình CNN và
+Transformer trên cùng một pipeline huấn luyện, và kiểm tra xem những thay đổi chi
+phí thấp có thu hẹp được khoảng cách ngoài miền hay không.
+\abslabel{Phương pháp} Mọi mô hình được huấn luyện trên split PraNet của
+Kvasir-SEG và CVC-ClinicDB (1.450 ảnh) và kiểm tra trên năm bộ, trong đó ba bộ đến
+từ các trung tâm không xuất hiện khi huấn luyện. Nhóm tái hiện U-Net, MultiResUNet,
+CE-Net và TransUNet \ph{[và Swin-Unet]} với cùng dữ liệu, augmentation, hàm mất mát
+và lịch huấn luyện, sau đó thêm hàm mất mát chú ý đường biên và augmentation theo
+màu sắc. Các mô hình được so sánh bằng Dice, IoU, recall và HD95; chênh lệch được
+kiểm định bằng phép kiểm định hạng có dấu Wilcoxon trên điểm của từng ảnh.
+\abslabel{Kết quả} \ph{[Placeholder] Dice của từng mô hình trên tập trong miền và
+ngoài miền; độ lớn khoảng cách tổng quát hóa; Transformer có thắng CNN một cách có ý
+nghĩa thống kê hay không; tác dụng của từng cải tiến trong ablation; tốc độ suy
+luận.}
+\abslabel{Kết luận} \ph{[Placeholder] Một hoặc hai câu về phát hiện chính, kèm hạn
+chế chính (tập huấn luyện nhỏ, chỉ dùng benchmark công khai, ít lần chạy cho mỗi
+cấu hình).}
+\keywords[Từ khóa]{phân vùng polyp, nội soi đại tràng, U-Net, Vision Transformer,
+tổng quát hóa miền, boundary loss, kiểm định thống kê}
+\end{reportabstract}
+
+% =====================================================================
+\section{Giới thiệu}
+Phần lớn ung thư đại trực tràng phát triển từ polyp trong đại tràng, và việc phát
+hiện, cắt bỏ polyp khi nội soi giúp giảm nguy cơ ung thư \ph{[trích dẫn]}. Polyp
+khác nhau về kích thước, hình dạng và màu sắc, nhiều polyp trông gần giống niêm mạc
+xung quanh nên vẫn có thể bị bỏ sót. Phân vùng tự động khoanh vùng polyp đến từng
+điểm ảnh và có thể hỗ trợ bác sĩ trong lúc nội soi. Các mạng encoder--decoder dựa trên
+U-Net~\cite{ronneberger2015unet} là cách tiếp cận chuẩn, còn các mô hình gần đây mở
+rộng hoặc thay thế encoder tích chập bằng
+Transformer~\cite{chen2021transunet,cao2022swinunet}.
+
+Điểm số trên các benchmark quen thuộc rất cao, nhưng giảm mạnh trên dữ liệu từ
+trung tâm khác. PraNet đạt Dice trung bình 0,898 trên Kvasir-SEG và 0,899 trên
+CVC-ClinicDB, hai nguồn của dữ liệu huấn luyện, nhưng chỉ 0,709 trên CVC-ColonDB và
+0,628 trên ETIS~\cite{fan2020pranet}. Cách đánh giá còn là vấn đề thứ hai. Một bài
+kiểm định 27 công trình phân vùng polyp cho thấy 26 bài không có kiểm định ý nghĩa
+thống kê, 25 bài bỏ qua HD95 và 25 bài bỏ qua recall; trên sáu trung tâm chưa thấy
+của PolypGen, mọi mô hình được đánh giá lại chỉ còn Dice
+0,71--0,76~\cite{urooj2026audit}. Vì vậy, chênh lệch Dice nhỏ đo trên tập trong miền
+không cho biết nhiều về việc mô hình nào hoạt động tốt hơn trên dữ liệu mới.
+
+Báo cáo này không đặt mục tiêu đạt kết quả tốt nhất hiện nay. Báo cáo giải quyết một
+câu hỏi hẹp hơn: trên cùng một pipeline có kiểm soát, các mô hình CNN và Transformer
+trong danh sách bài đọc của môn
+học~\cite{ronneberger2015unet,chen2021transunet,cao2022swinunet,ibtehaz2020multiresunet,gu2019cenet,isensee2018nnunet}
+so với nhau ra sao trên dữ liệu trong miền và ngoài miền, và những thay đổi chi phí
+thấp có thu hẹp được khoảng cách giữa hai loại dữ liệu này không?
+
+Báo cáo trả lời ba câu hỏi nghiên cứu:
+\begin{itemize}
+  \item \textbf{RQ1.} Với khoảng 1.450 ảnh huấn luyện, các mô hình dựa trên
+  Transformer (TransUNet, Swin-Unet) có vượt các mô hình CNN (MultiResUNet, CE-Net)
+  một cách có ý nghĩa thống kê không?
+  \item \textbf{RQ2.} Mô hình nào giữ hiệu năng tốt nhất trên các tập ngoài miền
+  CVC-ColonDB, ETIS và CVC-300?
+  \item \textbf{RQ3.} Hàm mất mát chú ý đường biên và augmentation theo màu sắc thu
+  hẹp khoảng cách tổng quát hóa được bao nhiêu, và thành phần nào đóng góp chính?
+\end{itemize}
+
+Phần còn lại được tổ chức như sau. Mục~\ref{sec:related} điểm lại các mạng CNN
+encoder--decoder, phân vùng dựa trên Transformer và các benchmark polyp.
+Mục~\ref{sec:problem} phát biểu bài toán và mô tả dữ liệu. Mục~\ref{sec:pipeline}
+trình bày pipeline thực nghiệm và các mô hình, tiếp theo là hàm mất mát và các cải
+tiến đề xuất ở Mục~\ref{sec:methods}. Mục~\ref{sec:setup} và~\ref{sec:results}
+trình bày thiết lập thực nghiệm và kết quả. Mục~\ref{sec:limits} nêu các giới hạn
+về độ tin cậy, và Mục~\ref{sec:conclusion} kết luận.
+
+% =====================================================================
+\section{Các công trình liên quan}\label{sec:related}
+\subsection{Mạng CNN encoder--decoder cho phân vùng ảnh y tế}
+U-Net kết hợp một encoder thu hẹp với một decoder mở rộng và chuyển đặc trưng độ
+phân giải cao qua các skip connection, nhờ đó học được từ ít ảnh có
+nhãn~\cite{ronneberger2015unet}. MultiResUNet thay hai lớp tích chập ở mỗi tầng bằng
+một khối MultiRes, gồm chuỗi tích chập $3\times3$ có đầu ra được ghép lại để bao
+nhiều vùng tiếp nhận, và thêm các ``Res path'' có kết nối phần dư trên skip connection
+để giảm khoảng cách ngữ nghĩa giữa đặc trưng encoder và decoder; mô hình được đánh
+giá trên năm bộ dữ liệu y sinh, trong đó có CVC-ClinicDB và
+ISIC~2018~\cite{ibtehaz2020multiresunet}. CE-Net đặt một khối tích chập giãn nở dày
+đặc (DAC) và một khối gộp đa nhân có phần dư (RMP) giữa encoder ResNet đã huấn luyện
+trước và decoder, để thu ngữ cảnh đa tỉ lệ mà không giảm thêm độ phân
+giải~\cite{gu2019cenet}. nnU-Net không đề xuất kiến trúc mới: khung này tự cấu hình
+tiền xử lý, cấu trúc mạng, huấn luyện và hậu xử lý từ ``dấu vân tay'' của bộ dữ liệu,
+và được đánh giá trên mười bài toán của Medical Segmentation
+Decathlon~\cite{isensee2018nnunet}.
+
+\subsection{Transformer cho phân vùng ảnh y tế}
+Tích chập nắm bắt mẫu cục bộ, và vùng tiếp nhận hạn chế khiến khó mô hình hóa ngữ
+cảnh tầm xa. TransUNet đưa bản đồ đặc trưng CNN vào một encoder Vision Transformer
+rồi giải mã bằng bộ upsample nhiều tầng cùng skip connection kiểu
+U-Net~\cite{chen2021transunet}. Swin-Unet xây toàn bộ mạng hình chữ U từ các khối
+Swin Transformer, với cửa sổ dịch chuyển giúp giảm chi phí self-attention, và
+upsample bằng các lớp patch expanding~\cite{cao2022swinunet}. Cả hai mô hình được
+đánh giá trên bộ CT đa cơ quan Synapse và bộ MRI tim ACDC, không phải trên ảnh nội
+soi đại tràng.
+
+\subsection{Benchmark phân vùng polyp và thực hành đánh giá}
+PraNet đưa ra giao thức mà phần lớn các công trình về polyp áp dụng: huấn luyện trên
+900 ảnh Kvasir-SEG và 550 ảnh CVC-ClinicDB, kiểm tra trên năm
+bộ~\cite{fan2020pranet}. PolypGen bổ sung ảnh từ sáu trung tâm để kiểm tra khả năng
+tổng quát hóa~\cite{ali2023polypgen}. Bài kiểm định trong~\cite{urooj2026audit} ghi
+nhận ít nhất năm giao thức chia dữ liệu không tương thích đang được dùng, lỗi chép số
+liệu trong các bảng tổng hợp, và chênh lệch HD95 tới khoảng 16~px giữa các thư viện
+tính độ đo. Bài này đề xuất một danh mục báo cáo: HD95 và recall là độ đo chính, nêu
+rõ giao thức chia dữ liệu, có tập kiểm tra bên ngoài, và kiểm định ý nghĩa trên điểm
+của từng ảnh. Metrics Reloaded đưa ra hướng dẫn chung về chọn độ đo cho bài toán
+phân vùng~\cite{maierhein2024metrics}. Báo cáo này làm theo các khuyến nghị đó.
+
+% =====================================================================
+\section{Phát biểu bài toán và dữ liệu}\label{sec:problem}
+\subsection{Phát biểu bài toán}
+Mỗi ảnh $x\in\mathbb{R}^{H\times W\times 3}$ có một mặt nạ nhị phân
+$y\in\{0,1\}^{H\times W}$ đánh dấu các điểm ảnh thuộc polyp. Mô hình $f_\theta$ trả
+về một bản đồ xác suất, và mặt nạ dự đoán có được bằng cách lấy ngưỡng:
+\begin{equation}
+  p = f_\theta(x)\in[0,1]^{H\times W},\qquad \hat{y} = \mathbb{1}[\,p \ge 0{,}5\,].
+\end{equation}
+Ảnh huấn luyện đến từ miền nguồn $\mathcal{D}_S$ (Kvasir-SEG và CVC-ClinicDB). Ảnh
+kiểm tra đến từ $\mathcal{D}_S$ và từ $K$ miền đích
+$\mathcal{D}_T^1,\dots,\mathcal{D}_T^K$ không bao giờ xuất hiện khi huấn luyện
+(CVC-ColonDB, ETIS và CVC-300). Với một điểm số theo ảnh $s$ (Dice trong phân tích
+chính), khoảng cách tổng quát hóa của một mô hình là
+\begin{equation}\label{eq:gap}
+  \Delta = \bar{s}\bigl(\mathcal{D}_S^{\text{test}}\bigr)
+  - \frac{1}{K}\sum_{k=1}^{K}\bar{s}\bigl(\mathcal{D}_T^{k}\bigr),
+\end{equation}
+trong đó $\bar{s}$ là điểm trung bình trên các ảnh của một tập. Mô hình tổng quát hóa
+tốt hơn khi đạt điểm cao trên các miền đích và có $\Delta$ nhỏ.
+
+\subsection{Nguồn dữ liệu}
+Bảng~\ref{tab:data} liệt kê năm bộ dữ liệu công khai. Kvasir-SEG và CVC-ClinicDB cung
+cấp ảnh huấn luyện; CVC-ColonDB, ETIS và CVC-300 chỉ dùng để kiểm tra. Cả năm bộ được
+dùng theo dạng đã phát hành kèm PraNet~\cite{fan2020pranet}.
+
+\begin{table}[t]
+\centering
+\caption{Các bộ dữ liệu và vai trò.}\label{tab:data}
+\begin{tabularx}{\linewidth}{@{}lll>{\raggedright\arraybackslash}X@{}}
+\toprule
+Bộ dữ liệu & Số ảnh & Độ phân giải & Vai trò \\
+\midrule
+Kvasir-SEG~\cite{jha2020kvasir} & 1.000 & khác nhau & Huấn luyện; kiểm tra trong miền \\
+CVC-ClinicDB~\cite{bernal2015clinicdb} & 612 & $384\times288$ & Huấn luyện; kiểm tra trong miền \\
+CVC-ColonDB~\cite{bernal2012colondb} & 380 & $574\times500$ & Kiểm tra ngoài miền \\
+ETIS-LaribPolypDB~\cite{silva2014etis} & 196 & $1225\times966$ & Kiểm tra ngoài miền \\
+CVC-300 (EndoScene)~\cite{vazquez2017endoscene} & 60 & \ph{[kiểm tra]} & Kiểm tra ngoài miền \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Chia dữ liệu}
+Bảng~\ref{tab:split} cho số ảnh của mỗi tập. Ảnh huấn luyện và kiểm tra theo split cố
+định của PraNet~\cite{fan2020pranet}. Mười phần trăm ảnh huấn luyện của mỗi bộ nguồn
+được tách ngẫu nhiên (seed 42) làm tập validation, để chọn checkpoint mà không đụng
+đến tập kiểm tra nào. Vì ba bộ CVC do các nhóm có liên quan thu thập, các ảnh gần
+trùng giữa tập huấn luyện và tập kiểm tra được kiểm tra bằng perceptual hashing trước
+khi huấn luyện, như trong~\cite{urooj2026audit}. Hình~\ref{fig:samples} minh họa một
+số ảnh mẫu.
+
+\begin{table}[t]
+\centering
+\caption{Số ảnh của mỗi tập.}\label{tab:split}
+\begin{tabular}{@{}lrrrrrr@{}}
+\toprule
+Tập & Kvasir & ClinicDB & ColonDB & ETIS & CVC-300 & Tổng \\
+\midrule
+Huấn luyện & 810 & 495 & -- & -- & -- & 1.305 \\
+Validation &  90 &  55 & -- & -- & -- &   145 \\
+Kiểm tra   & 100 &  62 & 380 & 196 & 60 & 798 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figph{[Hình placeholder] Một ảnh và mặt nạ của mỗi bộ trong năm bộ dữ liệu, cho thấy
+khác biệt về màu sắc, ánh sáng và độ phân giải. Tạo bằng
+scripts/plot\_dataset\_examples.py.}
+\caption{Ảnh mẫu và mặt nạ nhãn của từng bộ dữ liệu.}\label{fig:samples}
+\end{figure}
+
+% =====================================================================
+\section{Pipeline thực nghiệm}\label{sec:pipeline}
+Hình~\ref{fig:pipeline} trình bày pipeline, và Bảng~\ref{tab:models} liệt kê các mô
+hình. Mọi mô hình đi qua cùng các tầng với cùng dữ liệu, augmentation, hàm mất mát và
+lịch huấn luyện; chỉ kiến trúc thay đổi, nên chênh lệch kết quả có thể quy cho kiến
+trúc chứ không phải cho cách huấn luyện. Các tầng tô xám là nơi áp dụng các cải tiến
+ở Mục~\ref{sec:methods}.
+
+\begin{figure}[t]
+\centering
+\begin{tikzpicture}[
+  every node/.append style={execute at begin node={\hyphenpenalty=10000}},
+  box/.style={draw, rounded corners=2pt, align=center, font=\scriptsize,
+    text width=72pt, minimum height=40pt, inner sep=2pt},
+  hl/.style={box, fill=black!8},
+  arr/.style={-{Stealth[length=3.5pt]}, semithick}]
+  \node[box] (a) at (40pt,0)    {\textbf{1 Dữ liệu}\\ split PraNet,\\ 5 bộ dữ liệu};
+  \node[box] (b) at (136pt,0)   {\textbf{2 Tiền xử lý}\\ đổi kích thước,\\ chuẩn hóa ImageNet};
+  \node[hl]  (c) at (232pt,0)   {\textbf{3 Augmentation}\\ lật, xoay, scale,\\ màu sắc (C3)};
+  \node[box] (d) at (328pt,0)   {\textbf{4 Mô hình}\\ U-Net, CE-Net,\\ MultiResUNet,\\ TransUNet, Swin-Unet};
+  \node[hl]  (e) at (328pt,-56pt) {\textbf{5 Huấn luyện}\\ BCE + Dice,\\ boundary loss (C2)};
+  \node[hl]  (f) at (232pt,-56pt) {\textbf{6 Suy luận}\\ ngưỡng 0,5,\\ TTA (C3)};
+  \node[box] (g) at (136pt,-56pt) {\textbf{7 Đánh giá}\\ Dice, IoU,\\ recall, HD95};
+  \node[box] (h) at (40pt,-56pt)  {\textbf{8 Thống kê, demo}\\ kiểm định Wilcoxon,\\ Friedman; demo Gradio};
+  \draw[arr] (a) -- (b); \draw[arr] (b) -- (c); \draw[arr] (c) -- (d);
+  \draw[arr] (d) -- (e); \draw[arr] (e) -- (f); \draw[arr] (f) -- (g); \draw[arr] (g) -- (h);
+  \node[draw, dashed, rounded corners=2pt, font=\scriptsize, text width=356pt,
+    align=center, inner sep=4pt] at (184pt,-102pt)
+    {Cùng dữ liệu, lịch huấn luyện và seed cho mọi mô hình \,$\bullet$\, chọn checkpoint
+     trên validation \,$\bullet$\, ghi điểm theo từng ảnh cho mọi tập kiểm tra};
+\end{tikzpicture}
+\caption{Pipeline thực nghiệm. Các tầng tô xám được thay đổi bởi các cải tiến đề xuất
+(C2: hàm mất mát chú ý đường biên; C3: augmentation theo miền và augmentation khi
+suy luận).}\label{fig:pipeline}
+\end{figure}
+
+\begin{table}[t]
+\centering
+\caption{Các mô hình được so sánh (``\#'' là số thứ tự trong danh sách bài đọc của
+môn học).}\label{tab:models}
+\begin{tabularx}{\linewidth}{@{}l c >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}X l@{}}
+\toprule
+Mô hình & \# & Ý tưởng chính & Vấn đề giải quyết & Ưu tiên \\
+\midrule
+U-Net~\cite{ronneberger2015unet} & -- & Encoder--decoder với skip connection & Mốc so sánh cơ bản & Bắt buộc \\
+MultiResUNet~\cite{ibtehaz2020multiresunet} & 59 & Khối MultiRes; Res path & Polyp nhiều kích thước; khoảng cách ngữ nghĩa encoder--decoder & Bắt buộc \\
+CE-Net~\cite{gu2019cenet} & 60 & Khối DAC và RMP ở bottleneck & Mất chi tiết không gian do pooling liên tục & Bắt buộc \\
+TransUNet~\cite{chen2021transunet} & 57 & Đặc trưng CNN, encoder ViT, decoder U-Net & Vùng tiếp nhận hạn chế của CNN & Bắt buộc$^{*}$ \\
+Swin-Unet~\cite{cao2022swinunet} & 56 & Mạng chữ U gồm các khối Swin Transformer & Ngữ cảnh toàn cục với chi phí thấp hơn ViT & Tùy chọn$^{*}$ \\
+nnU-Net~\cite{isensee2018nnunet} & 58 & Pipeline U-Net tự cấu hình & Mốc so sánh mạnh không cần chỉnh tay & Tùy chọn \\
+\bottomrule
+\multicolumn{5}{@{}l}{$^{*}$Cần làm ít nhất một trong hai mô hình Transformer.}
+\end{tabularx}
+\end{table}
+
+TransUNet và Swin-Unet mặc định nhận ảnh $224\times224$, còn các mô hình CNN theo
+PraNet dùng $352\times352$. Kích thước đầu vào của từng mô hình được ghi ở Phụ
+lục~\ref{app:settings}, và dự đoán được đưa về độ phân giải gốc trước khi đánh giá,
+nên mọi mô hình được chấm trên cùng một mặt nạ. Mỗi lần chạy ghi cấu hình, seed và
+điểm theo từng ảnh vào một nhật ký chung. Mô hình tốt nhất được đưa vào một demo
+Gradio~\cite{abid2019gradio}, hiển thị mặt nạ dự đoán chồng lên ảnh người dùng tải
+lên.
+
+% =====================================================================
+\section{Hàm mất mát và các cải tiến đề xuất}\label{sec:methods}
+\subsection{Hàm mất mát phân vùng}
+Mọi mô hình được huấn luyện với tổng của binary cross-entropy và soft Dice loss:
+\begin{equation}\label{eq:loss}
+  \mathcal{L}_{\text{seg}} = \mathcal{L}_{\text{BCE}}(p,y)
+  + 1 - \frac{2\sum_i p_i y_i + \epsilon}{\sum_i p_i + \sum_i y_i + \epsilon},
+\end{equation}
+trong đó $i$ chạy trên các điểm ảnh và $\epsilon$ tránh chia cho 0. Cross-entropy cho
+gradient ở mọi điểm ảnh, còn thành phần Dice bù cho sự mất cân bằng giữa vùng polyp
+nhỏ và phần nền lớn.
+
+\subsection{Hàm mất mát chú ý đường biên (C2)}
+Dice và cross-entropy đếm điểm ảnh, nên một dự đoán phủ đúng polyp nhưng lệch biên vài
+điểm ảnh gần như không bị phạt, trong khi HD95 lại nhạy với lỗi này. Theo Kervadec và
+cộng sự~\cite{kervadec2021boundary}, nhóm thêm một thành phần có trọng số là bản đồ
+khoảng cách có dấu $\phi_G$ tới đường biên của mặt nạ nhãn, âm bên trong polyp và
+dương bên ngoài:
+\begin{equation}\label{eq:boundary}
+  \mathcal{L}_{B} = \frac{1}{|\Omega|}\sum_{q\in\Omega}\phi_G(q)\,p(q),
+  \qquad
+  \mathcal{L} = \mathcal{L}_{\text{seg}} + \lambda\,\mathcal{L}_{B}.
+\end{equation}
+Xác suất đặt ở xa bên ngoài vùng thật bị phạt nặng hơn xác suất gần biên. Theo khuyến
+nghị trong~\cite{kervadec2021boundary}, $\lambda$ bắt đầu nhỏ và tăng dần trong quá
+trình huấn luyện, tới \ph{[giá trị]}. Nếu thành phần này làm huấn luyện mất ổn định,
+phương án dự phòng là thêm một nhánh phụ dự đoán bản đồ đường biên.
+
+\subsection{Augmentation theo miền và augmentation khi suy luận (C3)}
+Nhóm giả định rằng phần lớn khác biệt giữa các trung tâm đến từ màu sắc, ánh sáng và
+độ phân giải của máy nội soi. Vì vậy augmentation cơ bản (lật, xoay, scale, đổi độ
+sáng nhẹ) được mở rộng bằng các biến đổi quang học mạnh hơn: độ sáng và độ tương
+phản, dịch sắc độ và độ bão hòa, gamma, làm mờ và nén JPEG, cài đặt bằng
+Albumentations~\cite{buslaev2020albumentations}. Khi suy luận, dự đoán được lấy trung
+bình qua phép lật ngang và lật dọc. Tác dụng được đo bằng thay đổi của khoảng cách
+$\Delta$ trong công thức~\eqref{eq:gap}.
+
+\subsection{Encoder huấn luyện trước mạnh hơn (C1, tùy chọn)}
+Nếu bảng so sánh baseline hoàn thành trước tuần 4, encoder của mô hình tốt nhất được
+thay bằng backbone PVTv2~\cite{wang2022pvtv2} hoặc ConvNeXt~\cite{liu2022convnext} huấn
+luyện trước trên ImageNet, còn decoder giữ các Res path của MultiResUNet. Mục tiêu là
+kết hợp ngữ cảnh toàn cục với chi tiết đa tỉ lệ.
+
+% =====================================================================
+\section{Thiết lập thực nghiệm}\label{sec:setup}
+\begin{table}[t]
+\centering
+\caption{Cấu hình thực nghiệm chính.}\label{tab:config}
+\begin{tabularx}{\linewidth}{@{}l >{\raggedright\arraybackslash}X@{}}
+\toprule
+Thành phần & Cấu hình \\
+\midrule
+Dữ liệu huấn luyện & 1.305 ảnh (tập huấn luyện của split PraNet trừ 10\% làm validation) \\
+Kích thước đầu vào & $352\times352$ cho CNN; $224\times224$ cho TransUNet và Swin-Unet \ph{[xác nhận]} \\
+Chuẩn hóa & Trung bình và độ lệch chuẩn của ImageNet \\
+Augmentation & Lật, xoay, scale ngẫu nhiên, đổi màu nhẹ; bộ biến đổi quang học mạnh hơn cho C3 \\
+Bộ tối ưu & AdamW~\cite{loshchilov2019adamw}, learning rate $10^{-4}$, weight decay \ph{[giá trị]} \\
+Batch, số epoch & \ph{8--16}, 100 epoch, mixed precision \\
+Hàm mất mát & BCE + Dice (công thức~\ref{eq:loss}); thêm boundary loss cho C2 (công thức~\ref{eq:boundary}) \\
+Chọn checkpoint & Dice cao nhất trên validation; không dùng tập kiểm tra để chọn \\
+Framework, phần cứng & PyTorch~\cite{paszke2019pytorch} \ph{[phiên bản]}; GPU Google Colab hoặc Kaggle \ph{[loại]} \\
+Seed & 42 \ph{[thêm hai seed nếu đủ thời gian GPU]} \\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+Bảng~\ref{tab:config} tóm tắt cấu hình. Với mặt nạ dự đoán $\hat{y}$ và mặt nạ nhãn
+$y$, các độ đo chồng lấp và độ nhạy là
+\begin{equation}
+  \text{Dice} = \frac{2|\hat{y}\cap y|}{|\hat{y}|+|y|},\qquad
+  \text{IoU} = \frac{|\hat{y}\cap y|}{|\hat{y}\cup y|},\qquad
+  \text{Recall} = \frac{|\hat{y}\cap y|}{|y|}.
+\end{equation}
+Recall được báo cáo vì bỏ sót polyp nguy hiểm hơn báo nhầm. Độ chính xác đường biên
+được đo bằng phân vị thứ 95 của khoảng cách Hausdorff đối xứng,
+\begin{equation}
+  \text{HD95}(\hat{y},y) = \max\Bigl\{ P_{95}\bigl\{d(a,\partial y) : a\in\partial\hat{y}\bigr\},\;
+  P_{95}\bigl\{d(b,\partial\hat{y}) : b\in\partial y\bigr\}\Bigr\},
+\end{equation}
+trong đó $\partial$ là đường biên của mặt nạ và $d$ là khoảng cách Euclid tính bằng
+điểm ảnh ở độ phân giải gốc. Vì giá trị HD95 khác nhau giữa các thư
+viện~\cite{urooj2026audit}, nhóm dùng một thư viện duy nhất (\ph{[tên, phiên bản]})
+cho mọi mô hình, và gán HD95 bằng đường chéo ảnh khi dự đoán rỗng. Mọi độ đo được tính
+theo từng ảnh rồi lấy trung bình trên mỗi tập kiểm tra (mDice, mIoU).
+
+Hai mô hình được so sánh bằng kiểm định hạng có dấu Wilcoxon~\cite{wilcoxon1945} trên
+cặp điểm Dice của từng ảnh; chênh lệch chỉ được coi là có ý nghĩa khi $p<0{,}05$. Để so
+sánh mọi mô hình cùng lúc, nhóm dùng kiểm định Friedman~\cite{friedman1937} rồi kiểm
+định hậu nghiệm, theo khuyến nghị của Dem\v{s}ar~\cite{demsar2006}. Giá trị trung bình
+trên các tập ngoài miền được báo cáo kèm khoảng tin cậy bootstrap 95\%. Hiệu quả tính
+toán được báo cáo bằng số tham số, FLOPs và số khung hình mỗi giây với batch bằng 1.
+
+% =====================================================================
+\section{Kết quả và thảo luận}\label{sec:results}
+\subsection{So sánh CNN và Transformer (RQ1)}
+\ph{[Placeholder] So sánh mDice của mọi mô hình trên năm tập kiểm tra
+(Bảng~\ref{tab:main}). Nêu rõ Transformer tốt nhất có tốt hơn CNN tốt nhất một cách có
+ý nghĩa thống kê không, và thảo luận vai trò của trọng số huấn luyện trước trên
+ImageNet.}
+
+\begin{table}[t]
+\centering
+\caption{mDice trên năm tập kiểm tra. Số liệu của PraNet lấy từ~\cite{fan2020pranet},
+chỉ dùng để đối chiếu.}\label{tab:main}
+\begin{tabular}{@{}lcccccc@{}}
+\toprule
+ & \multicolumn{2}{c}{Trong miền} & \multicolumn{3}{c}{Ngoài miền} & \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-6}
+Mô hình & Kvasir & ClinicDB & ColonDB & ETIS & CVC-300 & $p$ so với CNN \\
+\midrule
+PraNet~\cite{fan2020pranet} & 0,898 & 0,899 & 0,709 & 0,628 & 0,871 & -- \\
+\midrule
+U-Net        & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+MultiResUNet & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+CE-Net       & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+TransUNet    & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+Swin-Unet    & \tbd & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Tổng quát hóa ngoài miền (RQ2)}
+\ph{[Placeholder] Báo cáo khoảng cách $\Delta$, recall và HD95 trên các tập ngoài miền
+(Bảng~\ref{tab:ood}). Chỉ ra mô hình giảm ít nhất và thứ hạng có thay đổi giữa Dice và
+HD95 hay không (Hình~\ref{fig:gap}).}
+
+\begin{table}[t]
+\centering
+\caption{Khả năng tổng quát hóa của từng mô hình. Trong miền: Kvasir và ClinicDB; ngoài
+miền: ColonDB, ETIS và CVC-300 (trung bình của ba tập, khoảng tin cậy 95\% trong
+ngoặc).}\label{tab:ood}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Mô hình & \makecell{mDice\\trong miền} & \makecell{mDice\\ngoài miền} & $\Delta$ & \makecell{Recall\\ngoài miền} & \makecell{HD95 ngoài\\miền (px)} \\
+\midrule
+U-Net        & \tbd & \tbd & \tbd & \tbd & \tbd \\
+MultiResUNet & \tbd & \tbd & \tbd & \tbd & \tbd \\
+CE-Net       & \tbd & \tbd & \tbd & \tbd & \tbd \\
+TransUNet    & \tbd & \tbd & \tbd & \tbd & \tbd \\
+Swin-Unet    & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figph{[Hình placeholder] Trái: mDice trong miền và ngoài miền của từng mô hình (cặp
+điểm nối nhau). Phải: phân bố Dice theo từng ảnh trên ETIS.}
+\caption{Khoảng cách tổng quát hóa của từng mô hình.}\label{fig:gap}
+\end{figure}
+
+\subsection{Ablation các cải tiến đề xuất (RQ3)}
+\ph{[Placeholder] Xuất phát từ baseline tốt nhất sau tuần 4, thêm từng thành phần và báo
+cáo tác dụng (Bảng~\ref{tab:ablation}). Cải tiến không có ý nghĩa thống kê vẫn được báo
+cáo như một kết quả âm.}
+
+\begin{table}[t]
+\centering
+\caption{Ablation trên mô hình baseline tốt nhất. Giá trị $p$ so sánh từng dòng với
+baseline trên Dice ngoài miền theo từng ảnh.}\label{tab:ablation}
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Cấu hình & \makecell{mDice\\trong miền} & \makecell{mDice\\ngoài miền} & $\Delta$ & \makecell{HD95 ngoài\\miền (px)} & $p$ \\
+\midrule
+Baseline tốt nhất \ph{[tên]}       & \tbd & \tbd & \tbd & \tbd & -- \\
++ C3 (augmentation miền + TTA)     & \tbd & \tbd & \tbd & \tbd & \tbd \\
++ C2 (boundary loss)               & \tbd & \tbd & \tbd & \tbd & \tbd \\
++ C2 + C3                          & \tbd & \tbd & \tbd & \tbd & \tbd \\
+C1 + C2 + C3 (tùy chọn)            & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Phân tích lỗi và hiệu quả tính toán}
+\ph{[Placeholder] Hiển thị các ảnh có Dice thấp nhất của mỗi tập kiểm tra
+(Hình~\ref{fig:errors}), chia kết quả theo kích thước polyp, và so sánh chi phí mô hình
+(Bảng~\ref{tab:cost}).}
+
+\begin{table}[t]
+\centering
+\caption{Kích thước mô hình và tốc độ suy luận (batch bằng 1, \ph{[GPU]}).}\label{tab:cost}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+Mô hình & Số tham số (triệu) & FLOPs (G) & Khung hình/giây \\
+\midrule
+U-Net        & \tbd & \tbd & \tbd \\
+MultiResUNet & \tbd & \tbd & \tbd \\
+CE-Net       & \tbd & \tbd & \tbd \\
+TransUNet    & \tbd & \tbd & \tbd \\
+Swin-Unet    & \tbd & \tbd & \tbd \\
+Mô hình đề xuất & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{figure}[t]
+\centering
+\figph{[Hình placeholder] Ảnh, mặt nạ nhãn và dự đoán của từng mô hình cho ba ảnh có Dice
+thấp nhất của ETIS và CVC-ColonDB.}
+\caption{Các trường hợp lỗi điển hình trên ảnh ngoài miền.}\label{fig:errors}
+\end{figure}
+
+% =====================================================================
+\section{Độ tin cậy và hạn chế}\label{sec:limits}
+Bằng chứng của báo cáo bị giới hạn ở một số điểm. Các mô hình được huấn luyện trên
+1.305 ảnh từ hai nguồn, còn các tập ngoài miền nhỏ (60--380 ảnh), nên giá trị trung bình
+có khoảng tin cậy rộng; chênh lệch nhỏ hơn khoảng này không được diễn giải. Mọi ảnh
+kiểm tra đều có ít nhất một polyp, nên báo động nhầm trên khung hình bình thường không
+được đo, và ảnh tĩnh do nhóm tạo bộ dữ liệu chọn lọc sạch hơn video thực tế, vốn có
+nhòe, phản chiếu ánh sáng và chuyển động.
+
+Thời gian GPU miễn phí giới hạn số lần chạy, nên một số cấu hình chỉ được huấn luyện với
+một seed. Siêu tham số được dùng chung chứ không tinh chỉnh riêng cho từng mô hình, điều
+này có thể có lợi cho mô hình có công thức huấn luyện gốc gần với công thức chung. Các mô
+hình tái hiện được huấn luyện trên dữ liệu và kích thước đầu vào khác với bài báo gốc, nên
+điểm số chỉ được so sánh trong pipeline này và với PraNet, không so trực tiếp với số liệu
+của bài gốc. Đây là một so sánh học thuật trên dữ liệu công khai; nghiên cứu không có
+kiểm chứng lâm sàng, và demo không phải là thiết bị y tế.
+
+% =====================================================================
+\section{Kết luận và hướng phát triển}\label{sec:conclusion}
+\ph{[Placeholder] Tóm tắt câu trả lời cho RQ1--RQ3 trong một đoạn, kèm các số liệu
+chính.}
+
+Hướng phát triển gần nhất là kiểm tra các mô hình trên PolypGen~\cite{ali2023polypgen},
+với sáu trung tâm cho đánh giá bên ngoài chặt chẽ hơn các tập benchmark công khai. Đánh
+giá trên video nội soi sẽ đo được độ ổn định giữa các khung hình và báo động nhầm trên
+khung hình không có polyp. Mô hình nhẹ hơn cho suy luận thời gian thực, và huấn luyện bán
+giám sát với khung hình nội soi chưa gán nhãn, là các hướng mở rộng tiếp theo.
+
+\runin{Dữ liệu và mã nguồn.} Mã nguồn, cấu hình, danh sách chia dữ liệu, điểm theo từng
+ảnh và script vẽ hình được lưu trong kho mã của đề tài \ph{[URL]}. Các bộ dữ liệu là dữ
+liệu công khai, tuân theo điều khoản gốc của từng bộ, và không được phát hành lại.
+
+% =====================================================================
+\startappendix[Phụ lục]
+\section{Thiết lập riêng của từng mô hình}\label{app:settings}
+\begin{table}[h]
+\centering
+\caption{Các thiết lập khác nhau giữa các mô hình (IN: ImageNet). Các thiết lập còn lại
+theo Bảng~\ref{tab:config}.}\label{tab:settings}
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}lccccc@{}}
+\toprule
+Mô hình & \makecell{Kích thước\\đầu vào} & \makecell{Trọng số\\huấn luyện trước} & Batch & Epoch & \makecell{Số tham số\\(triệu)} \\
+\midrule
+U-Net        & $352\times352$ & không & \tbd & \tbd & \tbd \\
+MultiResUNet & $352\times352$ & không & \tbd & \tbd & \tbd \\
+CE-Net       & $352\times352$ & ResNet-34 (IN-1k) & \tbd & \tbd & \tbd \\
+TransUNet    & $224\times224$ & R50-ViT-B/16 (IN-21k) & \tbd & \tbd & \tbd \\
+Swin-Unet    & $224\times224$ & Swin-T (IN-1k) & \tbd & \tbd & \tbd \\
+Mô hình đề xuất & \tbd & \tbd & \tbd & \tbd & \tbd \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\clearpage
+\section{Bản đồ tài nguyên tái lập}\label{app:artifacts}
+\begin{table}[h]
+\centering
+\caption{Các tài nguyên chính trong kho mã của đề tài (bố cục dự kiến; cập nhật theo
+đường dẫn cuối cùng).}\label{tab:artifacts}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Mục đích & Tài nguyên \\
+\midrule
+Hướng dẫn chạy           & README.md \\
+Danh sách chia dữ liệu   & data/splits/\{train,val,test\}\_*.txt \\
+Kiểm tra ảnh trùng       & scripts/check\_duplicates.py \\
+Cấu hình thí nghiệm      & configs/*.yaml \\
+Mã các mô hình           & src/models/ \\
+Hàm mất mát              & src/losses.py \\
+Huấn luyện và đánh giá   & scripts/train.py, scripts/evaluate.py \\
+Điểm theo từng ảnh       & outputs/metrics/per\_image\_*.csv \\
+Kiểm định thống kê       & scripts/stats\_tests.py \\
+Hình trong báo cáo       & \makecell[l]{scripts/plot\_report\_figures.py\\ $\rightarrow$ report/figures/} \\
+Demo                     & app/gradio\_app.py \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\printreferences
+
+\end{document}
